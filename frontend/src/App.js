@@ -20,6 +20,7 @@ import PharmacyDetailPage from "./pages/patient/PharmacyDetailPage";
 import RemindersPage from "./pages/patient/RemindersPage";
 import PharmacistDashboard from "./pages/pharmacist/PharmacistDashboard";
 import InterPharmacyPage from "./pages/pharmacist/InterPharmacyPage";
+import PharmacistConnectionsPage from "./pages/pharmacist/PharmacistConnectionsPage";
 import SettingsPage from "./pages/shared/SettingsPage";
 import NotificationsPage from "./pages/shared/NotificationsPage";
 
