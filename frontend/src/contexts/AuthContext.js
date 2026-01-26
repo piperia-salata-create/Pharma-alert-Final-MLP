@@ -69,12 +69,15 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Create user profile
+  // Create user profile - stores role exactly as provided (patient or pharmacist)
   const createProfile = useCallback(async (userId, role, additionalData = {}) => {
     try {
+      // Normalize role: only 'patient' or 'pharmacist' allowed
+      const normalizedRole = role === 'pharmacist' ? ROLES.PHARMACIST : ROLES.PATIENT;
+      
       const profileData = {
         id: userId,
-        role: role === 'pharmacist' ? ROLES.PHARMACIST_PENDING : ROLES.PATIENT,
+        role: normalizedRole,
         language: 'el',
         senior_mode: false,
         created_at: new Date().toISOString(),
