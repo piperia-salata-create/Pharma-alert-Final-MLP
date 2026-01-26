@@ -61,11 +61,11 @@ export default function InterPharmacyPage() {
 
       if (error) throw error;
       
-      // Filter only verified pharmacists' pharmacies
-      const verifiedPharmacies = (data || []).filter(
-        p => p.profiles?.role === ROLES.PHARMACIST_VERIFIED
+      // Filter only pharmacists' pharmacies (role = 'pharmacist')
+      const pharmacistPharmacies = (data || []).filter(
+        p => p.profiles?.role === 'pharmacist'
       );
-      setPharmacies(verifiedPharmacies);
+      setPharmacies(pharmacistPharmacies);
     } catch (error) {
       console.error('Error fetching pharmacies:', error);
     }
