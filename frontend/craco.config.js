@@ -83,22 +83,32 @@ webpackConfig.devServer = (devServerConfig) => {
     devServerConfig = setupDevServer(devServerConfig);
   }
 
-  // Add health check endpoints if enabled
-  if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
-    const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
+  const originalSetupMiddlewares = devServerConfig.setupMiddlewares;
 
-    devServerConfig.setupMiddlewares = (middlewares, devServer) => {
-      // Call original setup if exists
-      if (originalSetupMiddlewares) {
-        middlewares = originalSetupMiddlewares(middlewares, devServer);
-      }
+  devServerConfig.setupMiddlewares = (middlewares, devServer) => {
+    // Call original setup if exists
+    if (originalSetupMiddlewares) {
+      middlewares = originalSetupMiddlewares(middlewares, devServer);
+    }
 
-      // Setup health endpoints
+    // Setup health endpoints
+    if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
       setupHealthEndpoints(devServer, healthPluginInstance);
+    }
 
-      return middlewares;
-    };
-  }
+    // Block service worker in development.
+    middlewares.unshift((req, res, next) => {
+      if (req.url === "/sw.js" || req.url === "/service-worker.js") {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "text/plain");
+        res.end("Not found");
+        return;
+      }
+      next();
+    });
+
+    return middlewares;
+  };
 
   return devServerConfig;
 };
