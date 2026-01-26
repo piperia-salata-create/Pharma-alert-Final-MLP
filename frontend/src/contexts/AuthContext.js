@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext();
@@ -11,18 +11,42 @@ export const useAuth = () => {
   return context;
 };
 
+// Simplified roles: patient and pharmacist only
 export const ROLES = {
   PATIENT: 'patient',
-  PHARMACIST_PENDING: 'pharmacist_pending',
-  PHARMACIST_VERIFIED: 'pharmacist_verified'
+  PHARMACIST: 'pharmacist'
 };
+
+// Global loading timeout (10 seconds max)
+const LOADING_TIMEOUT_MS = 10000;
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [error, setError] = useState(null);
+  const loadingTimeoutRef = useRef(null);
+
+  // Global loading safeguard - prevents spinner from showing > 10s
+  useEffect(() => {
+    if (loading && !loadingTimedOut) {
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.error('AuthContext: Global loading timeout exceeded (10s). Forcing loading=false.');
+        setLoading(false);
+        setLoadingTimedOut(true);
+      }, LOADING_TIMEOUT_MS);
+    } else if (!loading && loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
+  }, [loading, loadingTimedOut]);
 
   // Fetch user profile
   const fetchProfile = useCallback(async (userId) => {
