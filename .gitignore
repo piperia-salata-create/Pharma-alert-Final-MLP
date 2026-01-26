@@ -106,3 +106,7 @@ frontend/start-*.log
 
 # Test reports
 test_reports/
+-e 
+# Environment files
+*.env
+*.env.*
