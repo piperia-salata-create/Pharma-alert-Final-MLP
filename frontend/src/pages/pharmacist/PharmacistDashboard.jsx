@@ -1,50 +1,65 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth, ROLES } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { StatusBadge, VerifiedBadge } from '../../components/ui/status-badge';
-import { SkeletonMedicineCard, SkeletonList } from '../../components/ui/skeleton-loaders';
-import { EmptyState } from '../../components/ui/empty-states';
+import { Switch } from '../../components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { toast } from 'sonner';
 import { 
-  Search, 
   Bell, 
   Settings, 
   LogOut,
   Pill,
-  Package,
-  TrendingUp,
   Users,
-  Clock,
-  AlertCircle,
-  CheckCircle2,
   Menu,
   X,
-  RefreshCw,
-  BarChart3
+  Phone,
+  MapPin,
+  Building2,
+  UserPlus,
+  Clock,
+  CheckCircle2,
+  Send,
+  ArrowRight,
+  Package,
+  Shield
 } from 'lucide-react';
 
 export default function PharmacistDashboard() {
-  const { user, profile, signOut, isVerifiedPharmacist } = useAuth();
-  const { t, language } = useLanguage();
+  const { user, profile, signOut, isPharmacist } = useAuth();
+  const { language } = useLanguage();
   const { unreadCount } = useNotifications();
   const navigate = useNavigate();
 
+  // State
   const [pharmacy, setPharmacy] = useState(null);
-  const [medicines, setMedicines] = useState([]);
-  const [demandSignals, setDemandSignals] = useState([]);
+  const [isOnDuty, setIsOnDuty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  
+  // Connections state
+  const [connections, setConnections] = useState({ incoming: 0, outgoing: 0, accepted: 0, recentAccepted: [] });
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [sendingInvite, setSendingInvite] = useState(false);
+  
+  // Stock requests state
+  const [stockRequests, setStockRequests] = useState({ pending: 0, recent: [] });
+
+  // Redirect if not pharmacist
+  useEffect(() => {
+    if (profile && !isPharmacist()) {
+      navigate('/patient');
+    }
+  }, [profile, isPharmacist, navigate]);
 
   // Fetch pharmacist's pharmacy
+  // TODO: Handle multiple pharmacies - currently using first one
   const fetchPharmacy = useCallback(async () => {
     if (!user) return;
     try {
@@ -52,71 +67,173 @@ export default function PharmacistDashboard() {
         .from('pharmacies')
         .select('*')
         .eq('owner_id', user.id)
+        .limit(1)
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
-      setPharmacy(data);
+      
+      if (data) {
+        setPharmacy(data);
+        setIsOnDuty(data.is_on_call || false);
+      }
       return data;
     } catch (error) {
       console.error('Error fetching pharmacy:', error);
+      return null;
     }
   }, [user]);
 
-  // Fetch pharmacy stock
-  const fetchStock = useCallback(async (pharmacyId) => {
+  // Fetch connections summary
+  const fetchConnections = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
-        .from('pharmacy_stock')
+        .from('pharmacist_connections')
         .select(`
           *,
-          medicines (id, name, description, category)
+          requester:profiles!pharmacist_connections_requester_pharmacist_id_fkey (
+            id, full_name, pharmacy_name
+          ),
+          target:profiles!pharmacist_connections_target_pharmacist_id_fkey (
+            id, full_name, pharmacy_name
+          )
         `)
-        .eq('pharmacy_id', pharmacyId);
+        .or(`requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${user.id}`);
 
       if (error) throw error;
-      setMedicines(data || []);
-    } catch (error) {
-      console.error('Error fetching stock:', error);
-    }
-  }, []);
 
-  // Fetch demand signals
-  const fetchDemandSignals = useCallback(async (pharmacyId) => {
+      const all = data || [];
+      const incoming = all.filter(c => c.status === 'pending' && c.target_pharmacist_id === user.id).length;
+      const outgoing = all.filter(c => c.status === 'pending' && c.requester_pharmacist_id === user.id).length;
+      const acceptedList = all.filter(c => c.status === 'accepted');
+      
+      setConnections({
+        incoming,
+        outgoing,
+        accepted: acceptedList.length,
+        recentAccepted: acceptedList.slice(0, 3)
+      });
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+    }
+  }, [user]);
+
+  // Fetch stock requests
+  const fetchStockRequests = useCallback(async () => {
+    if (!pharmacy) return;
     try {
       const { data, error } = await supabase
-        .from('demand_signals')
+        .from('stock_requests')
         .select('*')
-        .eq('pharmacy_id', pharmacyId)
+        .eq('target_pharmacy_id', pharmacy.id)
+        .eq('status', 'pending')
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(5);
 
-      if (error) throw error;
-      setDemandSignals(data || []);
+      if (error && error.code !== 'PGRST116') throw error;
+
+      setStockRequests({
+        pending: data?.length || 0,
+        recent: data || []
+      });
     } catch (error) {
-      console.error('Error fetching demand signals:', error);
+      console.error('Error fetching stock requests:', error);
     }
-  }, []);
+  }, [pharmacy]);
 
-  // Update stock status
-  const updateStockStatus = async (stockId, newStatus) => {
+  // Toggle on-duty status
+  const toggleOnDuty = async (checked) => {
+    // Optimistic update
+    setIsOnDuty(checked);
+    
     try {
+      if (!pharmacy) {
+        toast.error(language === 'el' ? 'Δεν βρέθηκε φαρμακείο' : 'Pharmacy not found');
+        setIsOnDuty(!checked);
+        return;
+      }
+
       const { error } = await supabase
-        .from('pharmacy_stock')
-        .update({ 
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', stockId);
+        .from('pharmacies')
+        .update({ is_on_call: checked })
+        .eq('id', pharmacy.id);
 
       if (error) throw error;
-      
-      setMedicines(prev => 
-        prev.map(m => m.id === stockId ? { ...m, status: newStatus } : m)
+
+      toast.success(
+        checked 
+          ? (language === 'el' ? 'Είστε σε εφημερία' : 'You are now on duty')
+          : (language === 'el' ? 'Τέλος εφημερίας' : 'You are now off duty')
       );
-      
-      toast.success(language === 'el' ? 'Κατάσταση ενημερώθηκε' : 'Status updated');
     } catch (error) {
-      toast.error(t('errorOccurred'));
+      // Revert on error
+      setIsOnDuty(!checked);
+      toast.error(language === 'el' ? 'Σφάλμα ενημέρωσης' : 'Update failed');
+    }
+  };
+
+  // Send invite
+  const sendInvite = async () => {
+    if (!inviteEmail.trim()) {
+      toast.error(language === 'el' ? 'Εισάγετε email' : 'Enter an email');
+      return;
+    }
+
+    setSendingInvite(true);
+    try {
+      // Find pharmacist by email
+      const { data: targetProfile, error: findError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, pharmacy_name')
+        .eq('email', inviteEmail.trim().toLowerCase())
+        .eq('role', 'pharmacist')
+        .single();
+
+      if (findError || !targetProfile) {
+        toast.error(language === 'el' ? 'Δεν βρέθηκε φαρμακοποιός' : 'Pharmacist not found');
+        return;
+      }
+
+      if (targetProfile.id === user.id) {
+        toast.error(language === 'el' ? 'Δεν μπορείτε να προσκαλέσετε τον εαυτό σας' : 'Cannot invite yourself');
+        return;
+      }
+
+      // Check for existing connection
+      const { data: existing } = await supabase
+        .from('pharmacist_connections')
+        .select('id, status')
+        .or(
+          `and(requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${targetProfile.id}),` +
+          `and(requester_pharmacist_id.eq.${targetProfile.id},target_pharmacist_id.eq.${user.id})`
+        )
+        .maybeSingle();
+
+      if (existing) {
+        toast.error(language === 'el' ? 'Υπάρχει ήδη σύνδεση' : 'Connection already exists');
+        return;
+      }
+
+      // Create invite
+      const { error: insertError } = await supabase
+        .from('pharmacist_connections')
+        .insert({
+          requester_pharmacist_id: user.id,
+          target_pharmacist_id: targetProfile.id,
+          status: 'pending'
+        });
+
+      if (insertError) throw insertError;
+
+      toast.success(language === 'el' ? 'Πρόσκληση εστάλη!' : 'Invite sent!');
+      setInviteDialogOpen(false);
+      setInviteEmail('');
+      fetchConnections();
+    } catch (error) {
+      console.error('Error sending invite:', error);
+      toast.error(language === 'el' ? 'Σφάλμα αποστολής' : 'Error sending invite');
+    } finally {
+      setSendingInvite(false);
     }
   };
 
@@ -126,153 +243,139 @@ export default function PharmacistDashboard() {
     navigate('/');
   };
 
-  // Initial fetch
+  // Initial data load
   useEffect(() => {
-    const init = async () => {
+    const loadData = async () => {
       setLoading(true);
-      const pharmacyData = await fetchPharmacy();
-      if (pharmacyData) {
-        await Promise.all([
-          fetchStock(pharmacyData.id),
-          fetchDemandSignals(pharmacyData.id)
-        ]);
-      }
+      await fetchPharmacy();
+      await fetchConnections();
       setLoading(false);
     };
-    init();
-  }, [fetchPharmacy, fetchStock, fetchDemandSignals]);
+    
+    if (user) {
+      loadData();
+    }
+  }, [user, fetchPharmacy, fetchConnections]);
 
-  // Subscribe to realtime updates
+  // Fetch stock requests after pharmacy is loaded
   useEffect(() => {
-    if (!pharmacy) return;
+    if (pharmacy) {
+      fetchStockRequests();
+    }
+  }, [pharmacy, fetchStockRequests]);
 
-    const channel = supabase
-      .channel('pharmacist_updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'demand_signals', filter: `pharmacy_id=eq.${pharmacy.id}` },
-        () => fetchDemandSignals(pharmacy.id)
-      )
+  // Realtime subscriptions
+  useEffect(() => {
+    if (!user) return;
+
+    const connectionsChannel = supabase
+      .channel('pharmacist_connections_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pharmacist_connections' }, fetchConnections)
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(connectionsChannel);
     };
-  }, [pharmacy, fetchDemandSignals]);
+  }, [user, fetchConnections]);
 
-  // Filter medicines
-  const filteredMedicines = medicines.filter(m => {
-    const matchesSearch = m.medicines?.name?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || m.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  // No more pending verification state - all pharmacists have full access
+  if (!isPharmacist()) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="pharmacist-dashboard">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-pharma-grey-pale">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/pharmacist" className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-pharma-teal flex items-center justify-center">
               <Pill className="w-5 h-5 text-white" />
             </div>
-            <span className="font-heading font-bold text-xl text-pharma-dark-slate hidden sm:block">
-              {t('appName')}
-            </span>
-            {isVerifiedPharmacist() && <VerifiedBadge className="hidden sm:flex" />}
-          </Link>
+            <div>
+              <h1 className="font-heading font-bold text-pharma-dark-slate">
+                {language === 'el' ? 'Πίνακας Ελέγχου' : 'Dashboard'}
+              </h1>
+              <p className="text-xs text-pharma-slate-grey">
+                {profile?.full_name || user?.email}
+              </p>
+            </div>
+          </div>
 
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-2">
-            {isVerifiedPharmacist() && (
-              <Link to="/pharmacist/inter-pharmacy">
-                <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-interpharmacy-btn">
-                  <Users className="w-4 h-4" />
-                  {t('interPharmacy')}
-                </Button>
-              </Link>
-            )}
             <Link to="/pharmacist/connections">
               <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-connections-btn">
                 <Users className="w-4 h-4" />
                 {language === 'el' ? 'Συνδέσεις' : 'Connections'}
+                {connections.incoming > 0 && (
+                  <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full">
+                    {connections.incoming}
+                  </span>
+                )}
               </Button>
             </Link>
-            <Link to="/pharmacist/analytics">
-              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-analytics-btn">
-                <BarChart3 className="w-4 h-4" />
-                {t('analytics')}
-              </Button>
-            </Link>
-            <Link to="/pharmacist/notifications" className="relative">
-              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-notifications-btn">
-                <Bell className="w-4 h-4" />
+            <Link to="/pharmacist/notifications">
+              <Button variant="ghost" size="icon" className="rounded-full relative" data-testid="nav-notifications-btn">
+                <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-pharma-teal text-white text-xs rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-pharma-coral text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
                     {unreadCount}
                   </span>
                 )}
               </Button>
             </Link>
             <Link to="/pharmacist/settings">
-              <Button variant="ghost" className="rounded-full" data-testid="nav-settings-btn">
-                <Settings className="w-4 h-4" />
+              <Button variant="ghost" size="icon" className="rounded-full" data-testid="nav-settings-btn">
+                <Settings className="w-5 h-5" />
               </Button>
             </Link>
             <Button 
               variant="ghost" 
+              size="icon" 
               className="rounded-full text-pharma-slate-grey"
               onClick={handleSignOut}
-              data-testid="nav-signout-btn"
+              data-testid="signout-btn"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-5 h-5" />
             </Button>
           </nav>
 
-          {/* Mobile Menu Button */}
-          <button
-            className="md:hidden p-2 rounded-xl hover:bg-pharma-ice-blue"
+          {/* Mobile Menu Toggle */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="md:hidden rounded-full"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            data-testid="mobile-menu-btn"
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </Button>
         </div>
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="md:hidden bg-white border-t border-pharma-grey-pale p-4 space-y-2 animate-slide-up">
-            {isVerifiedPharmacist() && (
-              <Link to="/pharmacist/inter-pharmacy" onClick={() => setMobileMenuOpen(false)}>
-                <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
-                  <Users className="w-5 h-5" />
-                  {t('interPharmacy')}
-                </Button>
-              </Link>
-            )}
             <Link to="/pharmacist/connections" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
                 <Users className="w-5 h-5" />
                 {language === 'el' ? 'Συνδέσεις' : 'Connections'}
-              </Button>
-            </Link>
-            <Link to="/pharmacist/analytics" onClick={() => setMobileMenuOpen(false)}>
-              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
-                <BarChart3 className="w-5 h-5" />
-                {t('analytics')}
+                {connections.incoming > 0 && (
+                  <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full ml-auto">
+                    {connections.incoming}
+                  </span>
+                )}
               </Button>
             </Link>
             <Link to="/pharmacist/notifications" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
                 <Bell className="w-5 h-5" />
-                {t('notifications')}
+                {language === 'el' ? 'Ειδοποιήσεις' : 'Notifications'}
               </Button>
             </Link>
             <Link to="/pharmacist/settings" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
                 <Settings className="w-5 h-5" />
-                {t('settings')}
+                {language === 'el' ? 'Ρυθμίσεις' : 'Settings'}
               </Button>
             </Link>
             <Button 
@@ -281,219 +384,289 @@ export default function PharmacistDashboard() {
               onClick={handleSignOut}
             >
               <LogOut className="w-5 h-5" />
-              {t('signOut')}
+              {language === 'el' ? 'Αποσύνδεση' : 'Sign Out'}
             </Button>
           </div>
         )}
       </header>
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-8">
-        {/* Welcome & Stats */}
-        <section className="page-enter">
-          <div className="mb-6">
-            <h1 className="font-heading text-2xl md:text-3xl font-bold text-pharma-dark-slate mb-1">
-              {pharmacy?.name || (language === 'el' ? 'Πίνακας Ελέγχου' : 'Dashboard')}
-            </h1>
-            <p className="text-pharma-slate-grey">
-              {language === 'el' ? 'Διαχείριση αποθέματος φαρμακείου' : 'Manage pharmacy inventory'}
-            </p>
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        {loading ? (
+          <div className="grid md:grid-cols-2 gap-6">
+            {[1, 2, 3, 4].map(i => (
+              <Card key={i} className="bg-white rounded-2xl shadow-card border-pharma-grey-pale animate-pulse">
+                <CardContent className="p-6 h-40" />
+              </Card>
+            ))}
           </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* STATUS CARD - On Duty Toggle */}
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" data-testid="status-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-pharma-teal" />
+                  {language === 'el' ? 'Κατάσταση Εφημερίας' : 'Duty Status'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-pharma-charcoal font-medium">
+                      {isOnDuty 
+                        ? (language === 'el' ? 'Σε Εφημερία' : 'On Duty')
+                        : (language === 'el' ? 'Εκτός Εφημερίας' : 'Off Duty')
+                      }
+                    </p>
+                    <p className="text-sm text-pharma-slate-grey">
+                      {isOnDuty
+                        ? (language === 'el' ? 'Οι ασθενείς μπορούν να σας βρουν' : 'Patients can find you')
+                        : (language === 'el' ? 'Δεν εμφανίζεστε στις αναζητήσεις' : 'Not visible in searches')
+                      }
+                    </p>
+                  </div>
+                  <Switch
+                    checked={isOnDuty}
+                    onCheckedChange={toggleOnDuty}
+                    className="data-[state=checked]:bg-pharma-sea-green"
+                    data-testid="on-duty-toggle"
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-pharma-sea-green/10 flex items-center justify-center">
-                    <CheckCircle2 className="w-5 h-5 text-pharma-sea-green" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-pharma-dark-slate">
-                      {medicines.filter(m => m.status === 'available').length}
-                    </p>
-                    <p className="text-sm text-pharma-slate-grey">{t('available')}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-pharma-steel-blue/10 flex items-center justify-center">
-                    <AlertCircle className="w-5 h-5 text-pharma-steel-blue" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-pharma-dark-slate">
-                      {medicines.filter(m => m.status === 'limited').length}
-                    </p>
-                    <p className="text-sm text-pharma-slate-grey">{t('limited')}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-pharma-slate-grey/10 flex items-center justify-center">
-                    <Package className="w-5 h-5 text-pharma-slate-grey" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-pharma-dark-slate">
-                      {medicines.filter(m => m.status === 'unavailable').length}
-                    </p>
-                    <p className="text-sm text-pharma-slate-grey">{t('unavailable')}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-pharma-royal-blue/10 flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-pharma-royal-blue" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-pharma-dark-slate">
-                      {demandSignals.length}
-                    </p>
-                    <p className="text-sm text-pharma-slate-grey">{t('demandSignals')}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-
-        {/* Stock Management */}
-        <section className="page-enter" style={{ animationDelay: '0.1s' }}>
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
-            <h2 className="font-heading text-xl font-semibold text-pharma-dark-slate">
-              {t('stockManagement')}
-            </h2>
-            <div className="flex gap-3 w-full md:w-auto">
-              <div className="relative flex-1 md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pharma-slate-grey" />
-                <Input
-                  placeholder={t('search')}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 h-10 rounded-xl border-pharma-grey-pale"
-                  data-testid="stock-search-input"
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px] rounded-xl" data-testid="status-filter-select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('all')}</SelectItem>
-                  <SelectItem value="available">{t('available')}</SelectItem>
-                  <SelectItem value="limited">{t('limited')}</SelectItem>
-                  <SelectItem value="unavailable">{t('unavailable')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {loading ? (
-            <SkeletonList count={5} CardComponent={SkeletonMedicineCard} />
-          ) : filteredMedicines.length === 0 ? (
-            <EmptyState 
-              icon={Package}
-              title={language === 'el' ? 'Δεν βρέθηκαν φάρμακα' : 'No medicines found'}
-              description={language === 'el' 
-                ? 'Προσθέστε φάρμακα στο απόθεμά σας'
-                : 'Add medicines to your inventory'}
-            />
-          ) : (
-            <div className="space-y-3">
-              {filteredMedicines.map((stock) => (
-                <Card 
-                  key={stock.id}
-                  className="bg-white rounded-2xl shadow-card border-pharma-grey-pale"
-                  data-testid={`stock-card-${stock.id}`}
-                >
-                  <CardContent className="p-5">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex-1">
-                        <h3 className="font-heading font-semibold text-pharma-dark-slate text-lg">
-                          {stock.medicines?.name || 'Unknown Medicine'}
-                        </h3>
-                        <p className="text-sm text-pharma-slate-grey">
-                          {stock.medicines?.description || stock.medicines?.category}
-                        </p>
-                        {stock.quantity !== null && (
-                          <p className="text-sm text-pharma-charcoal mt-1">
-                            {language === 'el' ? 'Ποσότητα:' : 'Quantity:'} {stock.quantity}
-                          </p>
+            {/* PHARMACY PROFILE CARD */}
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.05s' }} data-testid="pharmacy-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-pharma-royal-blue" />
+                  {language === 'el' ? 'Το Φαρμακείο Μου' : 'My Pharmacy'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                {pharmacy ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-pharma-dark-slate">{pharmacy.name}</p>
+                        {pharmacy.is_verified && (
+                          <span className="inline-flex items-center gap-1 text-xs text-pharma-sea-green mt-1">
+                            <Shield className="w-3 h-3" />
+                            {language === 'el' ? 'Επαληθευμένο' : 'Verified'}
+                          </span>
                         )}
                       </div>
-                      
-                      <div className="flex items-center gap-3">
-                        <StatusBadge status={stock.status} />
-                        <Select 
-                          value={stock.status} 
-                          onValueChange={(value) => updateStockStatus(stock.id, value)}
-                        >
-                          <SelectTrigger 
-                            className="w-[160px] rounded-xl"
-                            data-testid={`status-select-${stock.id}`}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="available">{t('available')}</SelectItem>
-                            <SelectItem value="limited">{t('limited')}</SelectItem>
-                            <SelectItem value="unavailable">{t('unavailable')}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </section>
+                    {pharmacy.address && (
+                      <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
+                        <MapPin className="w-4 h-4 flex-shrink-0" />
+                        {pharmacy.address}
+                      </p>
+                    )}
+                    {pharmacy.phone && (
+                      <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
+                        <Phone className="w-4 h-4 flex-shrink-0" />
+                        {pharmacy.phone}
+                      </p>
+                    )}
+                    <Link to="/pharmacist/settings">
+                      <Button variant="outline" size="sm" className="rounded-full mt-2" data-testid="edit-pharmacy-btn">
+                        {language === 'el' ? 'Επεξεργασία' : 'Edit Profile'}
+                      </Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-pharma-slate-grey mb-3">
+                      {language === 'el' ? 'Δεν έχετε φαρμακείο' : 'No pharmacy registered'}
+                    </p>
+                    <Link to="/pharmacist/settings">
+                      <Button className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90" data-testid="add-pharmacy-btn">
+                        {language === 'el' ? 'Προσθήκη Φαρμακείου' : 'Add Pharmacy'}
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-        {/* Demand Signals */}
-        {demandSignals.length > 0 && (
-          <section className="page-enter" style={{ animationDelay: '0.2s' }}>
-            <h2 className="font-heading text-xl font-semibold text-pharma-dark-slate mb-4">
-              {t('demandSignals')}
-            </h2>
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-              <CardContent className="p-5">
-                <div className="space-y-3">
-                  {demandSignals.map((signal) => (
-                    <div 
-                      key={signal.id}
-                      className="flex items-center justify-between p-3 bg-pharma-ice-blue rounded-xl"
-                    >
-                      <div className="flex items-center gap-3">
-                        <TrendingUp className="w-5 h-5 text-pharma-royal-blue" />
-                        <div>
-                          <p className="font-medium text-pharma-charcoal">{signal.medicine_name}</p>
-                          <p className="text-sm text-pharma-slate-grey">
-                            {signal.request_count} {language === 'el' ? 'αιτήματα' : 'requests'}
-                          </p>
+            {/* CONNECTIONS SUMMARY CARD */}
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.1s' }} data-testid="connections-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
+                  <Users className="w-5 h-5 text-pharma-steel-blue" />
+                  {language === 'el' ? 'Συνδέσεις Φαρμακοποιών' : 'Pharmacist Connections'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="text-center p-3 bg-pharma-ice-blue rounded-xl">
+                    <p className="text-2xl font-bold text-pharma-coral" data-testid="incoming-count">
+                      {connections.incoming}
+                    </p>
+                    <p className="text-xs text-pharma-slate-grey">
+                      {language === 'el' ? 'Εισερχόμενες' : 'Incoming'}
+                    </p>
+                  </div>
+                  <div className="text-center p-3 bg-pharma-ice-blue rounded-xl">
+                    <p className="text-2xl font-bold text-pharma-royal-blue" data-testid="outgoing-count">
+                      {connections.outgoing}
+                    </p>
+                    <p className="text-xs text-pharma-slate-grey">
+                      {language === 'el' ? 'Απεσταλμένες' : 'Outgoing'}
+                    </p>
+                  </div>
+                  <div className="text-center p-3 bg-pharma-ice-blue rounded-xl">
+                    <p className="text-2xl font-bold text-pharma-sea-green" data-testid="accepted-count">
+                      {connections.accepted}
+                    </p>
+                    <p className="text-xs text-pharma-slate-grey">
+                      {language === 'el' ? 'Ενεργές' : 'Active'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Recent Accepted Connections */}
+                {connections.recentAccepted.length > 0 && (
+                  <div className="space-y-2 mb-4">
+                    <p className="text-xs font-medium text-pharma-slate-grey uppercase">
+                      {language === 'el' ? 'Πρόσφατες' : 'Recent'}
+                    </p>
+                    {connections.recentAccepted.map((conn) => {
+                      const otherUser = conn.requester_pharmacist_id === user?.id ? conn.target : conn.requester;
+                      return (
+                        <div key={conn.id} className="flex items-center gap-2 p-2 bg-pharma-grey-pale/30 rounded-lg">
+                          <CheckCircle2 className="w-4 h-4 text-pharma-sea-green flex-shrink-0" />
+                          <span className="text-sm text-pharma-charcoal truncate">
+                            {otherUser?.full_name || otherUser?.pharmacy_name || 'Unknown'}
+                          </span>
                         </div>
-                      </div>
-                      <span className="text-sm text-pharma-slate-grey">
-                        {new Date(signal.created_at).toLocaleDateString(language === 'el' ? 'el-GR' : 'en-US')}
-                      </span>
-                    </div>
-                  ))}
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1 rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-2"
+                    onClick={() => setInviteDialogOpen(true)}
+                    data-testid="invite-pharmacist-btn"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {language === 'el' ? 'Πρόσκληση' : 'Invite'}
+                  </Button>
+                  <Link to="/pharmacist/connections" className="flex-1">
+                    <Button variant="outline" className="w-full rounded-full gap-2" data-testid="view-connections-btn">
+                      {language === 'el' ? 'Όλες' : 'View All'}
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>
-          </section>
+
+            {/* STOCK REQUESTS SUMMARY */}
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.15s' }} data-testid="stock-requests-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
+                  <Package className="w-5 h-5 text-pharma-coral" />
+                  {language === 'el' ? 'Αιτήματα Αποθέματος' : 'Stock Requests'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                <div className="flex items-center justify-between mb-4 p-3 bg-pharma-coral/10 rounded-xl">
+                  <div>
+                    <p className="text-2xl font-bold text-pharma-coral" data-testid="pending-requests-count">
+                      {stockRequests.pending}
+                    </p>
+                    <p className="text-sm text-pharma-slate-grey">
+                      {language === 'el' ? 'Εκκρεμή αιτήματα' : 'Pending requests'}
+                    </p>
+                  </div>
+                  <Package className="w-10 h-10 text-pharma-coral/30" />
+                </div>
+
+                {stockRequests.recent.length > 0 ? (
+                  <div className="space-y-2 mb-4">
+                    {stockRequests.recent.slice(0, 3).map((req) => (
+                      <div key={req.id} className="flex items-center gap-2 p-2 bg-pharma-grey-pale/30 rounded-lg">
+                        <Clock className="w-4 h-4 text-pharma-coral flex-shrink-0" />
+                        <span className="text-sm text-pharma-charcoal truncate">
+                          {req.medicine_name || 'Stock request'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-pharma-slate-grey text-center py-4">
+                    {language === 'el' ? 'Δεν υπάρχουν εκκρεμή αιτήματα' : 'No pending requests'}
+                  </p>
+                )}
+
+                <Link to="/pharmacist/inter-pharmacy">
+                  <Button variant="outline" className="w-full rounded-full gap-2" data-testid="view-requests-btn">
+                    {language === 'el' ? 'Διαχείριση Αιτημάτων' : 'Manage Requests'}
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
         )}
       </main>
+
+      {/* Invite Dialog */}
+      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+        <DialogContent className="bg-white rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-pharma-dark-slate">
+              {language === 'el' ? 'Πρόσκληση Φαρμακοποιού' : 'Invite Pharmacist'}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-pharma-slate-grey">
+              {language === 'el' 
+                ? 'Εισάγετε το email του φαρμακοποιού.'
+                : 'Enter the pharmacist\'s email address.'}
+            </p>
+            <Input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="pharmacist@example.com"
+              className="rounded-xl"
+              data-testid="invite-email-input"
+            />
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => {
+                setInviteDialogOpen(false);
+                setInviteEmail('');
+              }}
+            >
+              {language === 'el' ? 'Ακύρωση' : 'Cancel'}
+            </Button>
+            <Button
+              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-2"
+              onClick={sendInvite}
+              disabled={sendingInvite}
+              data-testid="send-invite-btn"
+            >
+              <Send className="w-4 h-4" />
+              {sendingInvite 
+                ? (language === 'el' ? 'Αποστολή...' : 'Sending...')
+                : (language === 'el' ? 'Αποστολή' : 'Send')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
