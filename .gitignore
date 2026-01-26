@@ -96,3 +96,13 @@ frontend/node_modules/.cache/default-development/6.pack
 *.env
 *.env.*
 frontend/node_modules/.cache/default-development/2.pack
+
+# Build outputs
+frontend/build/
+
+# Logs
+*.log
+frontend/start-*.log
+
+# Test reports
+test_reports/
