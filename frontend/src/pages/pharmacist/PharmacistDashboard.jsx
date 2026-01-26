@@ -167,33 +167,7 @@ export default function PharmacistDashboard() {
     return matchesSearch && matchesStatus;
   });
 
-  // Show pending verification message
-  if (isPendingPharmacist()) {
-    return (
-      <div className="min-h-screen bg-pharma-ice-blue flex items-center justify-center p-4">
-        <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale max-w-md w-full">
-          <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-pharma-steel-blue/10 flex items-center justify-center mx-auto mb-6">
-              <Clock className="w-8 h-8 text-pharma-steel-blue" />
-            </div>
-            <h2 className="font-heading text-2xl font-bold text-pharma-dark-slate mb-3">
-              {t('pendingVerification')}
-            </h2>
-            <p className="text-pharma-slate-grey mb-6">
-              {t('pendingVerificationDesc')}
-            </p>
-            <Button 
-              variant="outline"
-              className="rounded-full"
-              onClick={handleSignOut}
-            >
-              {t('signOut')}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  // No more pending verification state - all pharmacists have full access
 
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="pharmacist-dashboard">
