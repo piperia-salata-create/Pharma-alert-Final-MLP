@@ -194,6 +194,12 @@ export default function PharmacistDashboard() {
                 </Button>
               </Link>
             )}
+            <Link to="/pharmacist/connections">
+              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-connections-btn">
+                <Users className="w-4 h-4" />
+                {language === 'el' ? 'Συνδέσεις' : 'Connections'}
+              </Button>
+            </Link>
             <Link to="/pharmacist/analytics">
               <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-analytics-btn">
                 <BarChart3 className="w-4 h-4" />
