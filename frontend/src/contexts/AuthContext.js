@@ -104,16 +104,15 @@ export const AuthProvider = ({ children }) => {
   const signUp = useCallback(async (email, password, role, additionalData = {}) => {
     try {
       setError(null);
+      // Normalize role for metadata
+      const normalizedRole = role === 'pharmacist' ? ROLES.PHARMACIST : ROLES.PATIENT;
 
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        // Do not insert into profiles here; it must happen after OTP verification (session exists)
-        // Optional: keep metadata if you want, but do NOT rely on it for routing
         options: {
           data: {
-            // keep minimal metadata if needed; safe to remove entirely
-            role: role === 'pharmacist' ? ROLES.PHARMACIST_PENDING : ROLES.PATIENT
+            role: normalizedRole
           }
         }
       });
