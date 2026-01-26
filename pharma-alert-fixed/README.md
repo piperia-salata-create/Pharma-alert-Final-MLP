@@ -1,6 +1,6 @@
 # Pharma-Alert - Fixed Version
 
-## Quick Start
+## Setup
 
 ```bash
 cd frontend
@@ -8,22 +8,16 @@ yarn install
 yarn start
 ```
 
-## SQL Migration (Required)
+## What's Fixed
 
-Run `supabase_migration.sql` in your Supabase SQL Editor to:
-- Normalize existing roles
-- Create `pharmacist_connections` table
+1. **Loading Hang** - 10s timeout safeguard added
+2. **Role Bug** - Pharmacist role now stored correctly  
+3. **Connections** - New pharmacist invite/accept system at /pharmacist/connections
 
-## Changes Made
+## Files Changed
 
-See `CHANGES_DOCUMENTATION.md` for:
-- Pre-fix audit report
-- Files changed and why
-- Manual test checklist
+See `CHANGES_DOCUMENTATION.md` for full details.
 
-## Build
+## SQL Migration
 
-```bash
-cd frontend
-yarn build
-```
+You already ran `supabase_migration.sql` - no additional SQL needed.
