@@ -59,44 +59,62 @@ export default function VerifyOtpPage() {
         return;
       }
 
+      // Get pending profile from sessionStorage
       const pendingProfileRaw = sessionStorage.getItem('pendingProfile');
-      if (!pendingProfileRaw) {
-        toast.error(language === 'el' ? 'Δεν βρέθηκαν στοιχεία εγγραφής.' : 'Signup details missing.');
-        return;
+      let pendingProfile = null;
+      
+      if (pendingProfileRaw) {
+        try {
+          pendingProfile = JSON.parse(pendingProfileRaw);
+        } catch (parseError) {
+          console.error('Failed to parse pendingProfile:', parseError);
+        }
       }
 
-      let pendingProfile;
-      try {
-        pendingProfile = JSON.parse(pendingProfileRaw);
-      } catch (parseError) {
-        toast.error(language === 'el' ? 'Μη έγκυρα στοιχεία εγγραφής.' : 'Invalid signup details.');
-        return;
-      }
+      // Fallback: if no pendingProfile, try to get role from user metadata
+      const metadataRole = session.user.user_metadata?.role;
+      const finalRole = pendingProfile?.role || metadataRole || 'patient';
+      
+      // Ensure role is valid
+      const validRole = (finalRole === 'pharmacist') ? 'pharmacist' : 'patient';
 
+      // Build profile data
+      const profileData = {
+        id: session.user.id,
+        role: validRole,
+        full_name: pendingProfile?.full_name || session.user.user_metadata?.full_name || '',
+        pharmacy_name: pendingProfile?.pharmacy_name || session.user.user_metadata?.pharmacy_name || null,
+        language: pendingProfile?.language || 'el',
+        senior_mode: pendingProfile?.senior_mode || false,
+        email: session.user.email
+      };
+
+      console.log('Creating profile with role:', validRole, profileData);
+
+      // Upsert profile - this is the ONLY place profile gets created after OTP
       const { data: profileRow, error: profileError } = await supabase
         .from('profiles')
-        .upsert(
-          [{ id: session.user.id, ...pendingProfile }],
-          { onConflict: 'id' }
-        )
+        .upsert([profileData], { onConflict: 'id' })
         .select()
         .single();
 
       if (profileError) {
+        console.error('Profile creation error:', profileError);
         toast.error(profileError.message);
         return;
       }
 
+      console.log('Profile created/updated:', profileRow);
       sessionStorage.removeItem('pendingProfile');
 
-      // Redirect based on DB profile role (single source of truth)
-      // Role is now either 'patient' or 'pharmacist' exactly
+      // CRITICAL: Route based on the SAVED profile role (source of truth)
       if (profileRow?.role === 'pharmacist') {
-        navigate('/pharmacist/dashboard');
+        navigate('/pharmacist');
       } else {
-        navigate('/patient/dashboard');
+        navigate('/patient');
       }
     } catch (err) {
+      console.error('OTP verification error:', err);
       toast.error(t('errorOccurred'));
     } finally {
       setLoading(false);
