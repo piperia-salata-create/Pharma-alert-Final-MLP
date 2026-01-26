@@ -188,15 +188,15 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]);
 
-  // Check if user is verified pharmacist
+  // Check if user is verified pharmacist (for backward compat - now just checks pharmacist)
   const isVerifiedPharmacist = useCallback(() => {
-    return profile?.role === ROLES.PHARMACIST_VERIFIED;
+    return profile?.role === ROLES.PHARMACIST;
   }, [profile]);
 
-  // Check if user is pending pharmacist
+  // Check if user is pending pharmacist (deprecated - returns false now)
   const isPendingPharmacist = useCallback(() => {
-    return profile?.role === ROLES.PHARMACIST_PENDING;
-  }, [profile]);
+    return false; // No more pending state
+  }, []);
 
   // Check if user is patient
   const isPatient = useCallback(() => {
@@ -205,7 +205,12 @@ export const AuthProvider = ({ children }) => {
 
   // Check if user is any type of pharmacist
   const isPharmacist = useCallback(() => {
-    return profile?.role === ROLES.PHARMACIST_PENDING || profile?.role === ROLES.PHARMACIST_VERIFIED;
+    return profile?.role === ROLES.PHARMACIST;
+  }, [profile]);
+
+  // Centralized role resolver - single source of truth
+  const getRole = useCallback(() => {
+    return profile?.role || null;
   }, [profile]);
 
   // Initialize auth state
