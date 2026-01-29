@@ -17,30 +17,31 @@ export const SeniorModeProvider = ({ children }) => {
     return saved === 'true';
   });
 
-  const setSeniorMode = useCallback(async (enabled) => {
+  const setSeniorModeLocal = useCallback((enabled) => {
     setSeniorModeState(enabled);
     localStorage.setItem('pharma-alert-senior-mode', enabled.toString());
-    
-    // Apply/remove senior-mode class to body
-    if (enabled) {
-      document.body.classList.add('senior-mode');
-    } else {
-      document.body.classList.remove('senior-mode');
-    }
-    
-    // Try to save to user profile if logged in
+  }, []);
+
+  const setSeniorMode = useCallback(async (enabled) => {
+    const previous = seniorMode;
+    setSeniorModeLocal(enabled);
+
     try {
       const user = await getCurrentUser();
       if (user) {
-        await supabase
+        const { error } = await supabase
           .from('profiles')
           .update({ senior_mode: enabled })
           .eq('id', user.id);
+        if (error) throw error;
       }
     } catch (error) {
-      console.error('Failed to save senior mode preference:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[senior-mode] update failed, reverting', error);
+      }
+      setSeniorModeLocal(previous);
     }
-  }, []);
+  }, [seniorMode, setSeniorModeLocal]);
 
   // Load senior mode from profile on mount
   useEffect(() => {
@@ -48,18 +49,24 @@ export const SeniorModeProvider = ({ children }) => {
       try {
         const user = await getCurrentUser();
         if (user) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('profiles')
             .select('senior_mode')
             .eq('id', user.id)
-            .single();
+            .maybeSingle();
+
+          if (error) throw error;
+          if (!data) return;
           
-          if (data?.senior_mode !== undefined) {
-            setSeniorModeState(data.senior_mode);
-            localStorage.setItem('pharma-alert-senior-mode', data.senior_mode.toString());
-            if (data.senior_mode) {
-              document.body.classList.add('senior-mode');
-            }
+          if (typeof data?.senior_mode === 'boolean') {
+            setSeniorModeState((prev) => {
+              if (prev === data.senior_mode) return prev;
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[senior-mode] sync from profile', { from: prev, to: data.senior_mode });
+              }
+              localStorage.setItem('pharma-alert-senior-mode', data.senior_mode.toString());
+              return data.senior_mode;
+            });
           }
         }
       } catch (error) {
@@ -68,10 +75,18 @@ export const SeniorModeProvider = ({ children }) => {
     };
 
     loadSeniorModeFromProfile();
-    
-    // Apply initial state
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[senior-mode] initial load');
+    }
+  }, []);
+
+  // Apply/remove senior-mode class based on state
+  useEffect(() => {
     if (seniorMode) {
       document.body.classList.add('senior-mode');
+    } else {
+      document.body.classList.remove('senior-mode');
     }
   }, [seniorMode]);
 

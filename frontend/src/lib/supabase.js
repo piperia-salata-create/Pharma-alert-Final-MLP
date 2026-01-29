@@ -33,10 +33,10 @@ export const getUserProfile = async (userId) => {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
-  
+    .maybeSingle();
+
   if (error) return null;
-  return data;
+  return data || null;
 };
 
 // Subscribe to realtime changes

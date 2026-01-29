@@ -32,6 +32,7 @@ export default function InterPharmacyPage() {
   const navigate = useNavigate();
 
   const [pharmacies, setPharmacies] = useState([]);
+  const [myPharmacy, setMyPharmacy] = useState(null);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,24 +49,33 @@ export default function InterPharmacyPage() {
     }
   }, [profile, isVerifiedPharmacist, navigate]);
 
-  // Fetch verified pharmacies
-  const fetchPharmacies = useCallback(async () => {
+  const fetchMyPharmacy = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from('pharmacies')
-        .select(`
-          *,
-          profiles!pharmacies_owner_id_fkey (role)
-        `)
-        .neq('owner_id', user?.id);
+        .select('*')
+        .eq('owner_id', user.id)
+        .maybeSingle();
 
       if (error) throw error;
-      
-      // Filter only pharmacists' pharmacies (role = 'pharmacist')
-      const pharmacistPharmacies = (data || []).filter(
-        p => p.profiles?.role === 'pharmacist'
-      );
-      setPharmacies(pharmacistPharmacies);
+      setMyPharmacy(data || null);
+    } catch (error) {
+      console.error('Error fetching my pharmacy:', error);
+    }
+  }, [user]);
+
+  // Fetch pharmacies (no embedded relationships)
+  const fetchPharmacies = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('pharmacies')
+        .select('id, owner_id, name, address, phone, hours, is_on_call, on_call_schedule, is_verified, latitude, longitude, created_at, updated_at')
+        .eq('owner_id', user.id);
+
+      if (error) throw error;
+      setPharmacies(data || []);
     } catch (error) {
       console.error('Error fetching pharmacies:', error);
     }
@@ -73,7 +83,7 @@ export default function InterPharmacyPage() {
 
   // Fetch stock requests
   const fetchRequests = useCallback(async () => {
-    if (!user) return;
+    if (!myPharmacy) return;
     try {
       const { data, error } = await supabase
         .from('stock_requests')
@@ -82,7 +92,7 @@ export default function InterPharmacyPage() {
           from_pharmacy:pharmacies!stock_requests_from_pharmacy_id_fkey (name),
           to_pharmacy:pharmacies!stock_requests_to_pharmacy_id_fkey (name)
         `)
-        .or(`from_pharmacy_id.eq.${user.id},to_pharmacy_id.eq.${user.id}`)
+        .or(`from_pharmacy_id.eq.${myPharmacy.id},to_pharmacy_id.eq.${myPharmacy.id}`)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -90,7 +100,7 @@ export default function InterPharmacyPage() {
     } catch (error) {
       console.error('Error fetching requests:', error);
     }
-  }, [user]);
+  }, [myPharmacy]);
 
   // Send stock request
   const sendStockRequest = async () => {
@@ -102,21 +112,28 @@ export default function InterPharmacyPage() {
     setSendingRequest(true);
     try {
       // Get current user's pharmacy
-      const { data: myPharmacy } = await supabase
-        .from('pharmacies')
-        .select('id')
-        .eq('owner_id', user.id)
-        .single();
+      let currentPharmacy = myPharmacy;
+      if (!currentPharmacy) {
+        const { data, error } = await supabase
+          .from('pharmacies')
+          .select('id')
+          .eq('owner_id', user.id)
+          .maybeSingle();
+        if (error) throw error;
+        currentPharmacy = data;
+      }
 
-      if (!myPharmacy) {
-        toast.error(language === 'el' ? 'Δεν βρέθηκε φαρμακείο' : 'Pharmacy not found');
+      if (!currentPharmacy) {
+        toast.error(language === 'el'
+          ? '\u0394\u03b5\u03bd \u03b2\u03c1\u03ad\u03b8\u03b7\u03ba\u03b5 \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03bf'
+          : 'Pharmacy not found');
         return;
       }
 
       const { error } = await supabase
         .from('stock_requests')
         .insert({
-          from_pharmacy_id: myPharmacy.id,
+          from_pharmacy_id: currentPharmacy.id,
           to_pharmacy_id: selectedPharmacy.id,
           medicine_name: medicineName,
           message: requestMessage,
@@ -166,11 +183,17 @@ export default function InterPharmacyPage() {
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([fetchPharmacies(), fetchRequests()]);
+      await Promise.all([fetchMyPharmacy(), fetchPharmacies()]);
       setLoading(false);
     };
     init();
-  }, [fetchPharmacies, fetchRequests]);
+  }, [fetchMyPharmacy, fetchPharmacies]);
+
+  useEffect(() => {
+    if (myPharmacy) {
+      fetchRequests();
+    }
+  }, [myPharmacy, fetchRequests]);
 
   // Subscribe to realtime updates
   useEffect(() => {
@@ -195,8 +218,8 @@ export default function InterPharmacyPage() {
   );
 
   // Separate incoming and outgoing requests
-  const incomingRequests = requests.filter(r => r.to_pharmacy?.name);
-  const outgoingRequests = requests.filter(r => r.from_pharmacy?.name);
+  const incomingRequests = requests.filter(r => r.to_pharmacy_id === myPharmacy?.id);
+  const outgoingRequests = requests.filter(r => r.from_pharmacy_id === myPharmacy?.id);
 
   if (!isVerifiedPharmacist()) {
     return null;
@@ -350,7 +373,7 @@ export default function InterPharmacyPage() {
                           }
                         />
                         
-                        {request.status === 'pending' && request.to_pharmacy_id === user?.id && (
+                        {request.status === 'pending' && request.to_pharmacy_id === myPharmacy?.id && (
                           <div className="flex gap-2">
                             <Button
                               size="sm"

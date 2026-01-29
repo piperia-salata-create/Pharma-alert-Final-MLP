@@ -102,7 +102,10 @@ export default function PharmacistConnectionsPage() {
         .select('id, full_name, email, role, pharmacy_name')
         .eq('email', inviteEmail.trim().toLowerCase())
         .eq('role', 'pharmacist')
-        .single();
+        .maybeSingle();
+      if (findError) {
+        console.error('Error finding pharmacist by email:', findError);
+      }
 
       if (findError || !targetProfile) {
         toast.error(
@@ -123,14 +126,18 @@ export default function PharmacistConnectionsPage() {
       }
 
       // Check for existing connection
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('pharmacist_connections')
         .select('id, status')
         .or(
           `and(requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${targetProfile.id}),` +
           `and(requester_pharmacist_id.eq.${targetProfile.id},target_pharmacist_id.eq.${user.id})`
         )
-        .single();
+        .maybeSingle();
+
+      if (existingError) {
+        console.error('Error checking existing connection:', existingError);
+      }
 
       if (existing) {
         const statusMsg = {

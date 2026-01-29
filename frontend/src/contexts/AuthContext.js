@@ -19,6 +19,38 @@ export const ROLES = {
 
 // Global loading timeout (10 seconds max)
 const LOADING_TIMEOUT_MS = 10000;
+const FETCH_TIMEOUT_MS = 8000;
+let timeLabelCounter = 0;
+
+const withTimeout = (promise, ms, label) => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(`Timeout after ${ms}ms${label ? ` (${label})` : ''}`);
+      error.name = 'TimeoutError';
+      reject(error);
+    }, ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+};
+
+const timed = async (label, promise) => {
+  const isDev = process.env.NODE_ENV === 'development';
+  const uniqueLabel = isDev ? `${label}#${++timeLabelCounter}` : label;
+  console.time(uniqueLabel);
+  try {
+    return await promise;
+  } finally {
+    console.timeEnd(uniqueLabel);
+  }
+};
+
+const logStep = (step, details = {}) => {
+  console.info(`[auth] ${step}`, details);
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -28,6 +60,7 @@ export const AuthProvider = ({ children }) => {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [error, setError] = useState(null);
   const loadingTimeoutRef = useRef(null);
+  const initAuthRef = useRef(false);
 
   // Global loading safeguard - prevents spinner from showing > 10s
   useEffect(() => {
@@ -49,55 +82,92 @@ export const AuthProvider = ({ children }) => {
   }, [loading, loadingTimedOut]);
 
   // Fetch user profile - creates if missing using metadata role
-  const fetchProfile = useCallback(async (userId) => {
+  const fetchProfile = useCallback(async (userId, source = 'unknown') => {
+    if (!userId) return null;
+    logStep('fetchProfile:start', { source });
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      const { data, error } = await timed(
+        'auth:fetchProfile:select',
+        withTimeout(
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle(),
+          FETCH_TIMEOUT_MS,
+          'profiles.select'
+        )
+      );
 
-      if (error && error.code === 'PGRST116') {
+      if (error) {
+        logStep('fetchProfile:select:error', { source, code: error.code, status: error.status });
+        throw error;
+      }
+
+      if (!data) {
         // Profile doesn't exist - this can happen if trigger didn't fire
         // Get current user to read metadata
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        const metadataRole = currentUser?.user_metadata?.role;
-        const finalRole = (metadataRole === 'pharmacist') ? 'pharmacist' : 'patient';
-        
-        console.log('Profile not found, creating with role:', finalRole);
-        
-        // Create profile with role from metadata
-        const { data: newProfile, error: createError } = await supabase
-          .from('profiles')
-          .insert([{
-            id: userId,
-            role: finalRole,
-            email: currentUser?.email,
-            full_name: currentUser?.user_metadata?.full_name || '',
-            pharmacy_name: currentUser?.user_metadata?.pharmacy_name || null,
-            language: 'el',
-            senior_mode: false
-          }])
-          .select()
-          .single();
+        const { data: userData, error: userError } = await timed(
+          'auth:fetchProfile:getUser',
+          withTimeout(supabase.auth.getUser(), FETCH_TIMEOUT_MS, 'auth.getUser')
+        );
 
-        if (createError) {
-          console.error('Error creating profile:', createError);
+        if (userError) {
+          logStep('fetchProfile:getUser:error', { source, code: userError.code, status: userError.status });
           return null;
         }
 
+        const currentUser = userData?.user;
+        const metadataRole = currentUser?.user_metadata?.role;
+        const finalRole = (metadataRole === 'pharmacist') ? 'pharmacist' : 'patient';
+
+        logStep('fetchProfile:create', { source, role: finalRole });
+
+        // Create or ensure profile with role from metadata
+        const { data: newProfile, error: createError } = await timed(
+          'auth:fetchProfile:createProfile',
+          withTimeout(
+            supabase
+              .from('profiles')
+              .upsert([{
+                id: userId,
+                role: finalRole,
+                email: currentUser?.email,
+                full_name: currentUser?.user_metadata?.full_name || '',
+                pharmacy_name: currentUser?.user_metadata?.pharmacy_name || null,
+                language: 'el',
+                senior_mode: false
+              }], { onConflict: 'id' })
+              .select()
+              .single(),
+            FETCH_TIMEOUT_MS,
+            'profiles.upsert'
+          )
+        );
+
+        if (createError) {
+          logStep('fetchProfile:create:error', { source, code: createError.code, status: createError.status });
+          console.error('fetchProfile: create profile failed', {
+            message: createError?.message,
+            code: createError?.code,
+            status: createError?.status
+          });
+          return null;
+        }
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[auth] profile ensured via upsert', { userId, source });
+        }
         setProfile(newProfile);
+        logStep('fetchProfile:success', { source, created: true });
         return newProfile;
       }
-      
-      if (error) {
-        throw error;
-      }
-      
+
       setProfile(data);
+      logStep('fetchProfile:success', { source, created: false });
       return data;
     } catch (err) {
-      console.error('Error fetching profile:', err);
+      logStep('fetchProfile:error', { source, name: err?.name, message: err?.message });
       return null;
     }
   }, []);
@@ -117,18 +187,31 @@ export const AuthProvider = ({ children }) => {
         ...additionalData
       };
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert([profileData])
-        .select()
-        .single();
+      const { data, error } = await timed(
+        'auth:createProfile',
+        withTimeout(
+          supabase
+            .from('profiles')
+            .insert([profileData])
+            .select()
+            .single(),
+          FETCH_TIMEOUT_MS,
+          'profiles.insert'
+        )
+      );
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
       
       setProfile(data);
       return data;
     } catch (err) {
-      console.error('Error creating profile:', err);
+      console.error('createProfile failed (profiles.insert):', {
+        message: err?.message,
+        code: err?.code,
+        status: err?.status
+      });
       throw err;
     }
   }, []);
@@ -140,15 +223,22 @@ export const AuthProvider = ({ children }) => {
       // Normalize role for metadata
       const normalizedRole = role === 'pharmacist' ? ROLES.PHARMACIST : ROLES.PATIENT;
 
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            role: normalizedRole
-          }
-        }
-      });
+      const { data, error } = await timed(
+        'auth:signUp',
+        withTimeout(
+          supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                role: normalizedRole
+              }
+            }
+          }),
+          FETCH_TIMEOUT_MS,
+          'auth.signUp'
+        )
+      );
 
       if (error) throw error;
 
@@ -165,15 +255,22 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
+      const { data, error } = await timed(
+        'auth:signIn',
+        withTimeout(
+          supabase.auth.signInWithPassword({
+            email,
+            password
+          }),
+          FETCH_TIMEOUT_MS,
+          'auth.signInWithPassword'
+        )
+      );
 
       if (error) throw error;
 
       if (data.user) {
-        await fetchProfile(data.user.id);
+        await fetchProfile(data.user.id, 'signIn');
       }
 
       return { data, error: null };
@@ -186,7 +283,10 @@ export const AuthProvider = ({ children }) => {
   // Sign out
   const signOut = useCallback(async () => {
     try {
-      const { error } = await supabase.auth.signOut();
+      const { error } = await timed(
+        'auth:signOut',
+        withTimeout(supabase.auth.signOut(), FETCH_TIMEOUT_MS, 'auth.signOut')
+      );
       if (error) throw error;
       
       setUser(null);
@@ -205,18 +305,30 @@ export const AuthProvider = ({ children }) => {
     if (!user) return { error: new Error('Not authenticated') };
 
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
-        .select()
-        .single();
+      const { data, error } = await timed(
+        'auth:updateProfile',
+        withTimeout(
+          supabase
+            .from('profiles')
+            .update(updates)
+            .eq('id', user.id)
+            .select()
+            .single(),
+          FETCH_TIMEOUT_MS,
+          'profiles.update'
+        )
+      );
 
       if (error) throw error;
       
       setProfile(data);
       return { data, error: null };
     } catch (err) {
+      console.error('updateProfile failed (profiles.update):', {
+        message: err?.message,
+        code: err?.code,
+        status: err?.status
+      });
       return { data: null, error: err };
     }
   }, [user]);
@@ -248,30 +360,52 @@ export const AuthProvider = ({ children }) => {
 
   // Initialize auth state
   useEffect(() => {
+    if (initAuthRef.current) return;
+    initAuthRef.current = true;
     const initAuth = async () => {
+      logStep('init:start');
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setSession(session || null);
-        
-        if (session?.user) {
-          setUser(session.user);
-          await fetchProfile(session.user.id);
+        const { data, error } = await timed(
+          'auth:init:getSession',
+          withTimeout(supabase.auth.getSession(), FETCH_TIMEOUT_MS, 'auth.getSession')
+        );
+
+        if (error) {
+          logStep('init:getSession:error', { code: error.code, status: error.status });
+        }
+
+        const nextSession = data?.session || null;
+        setSession(nextSession);
+
+        if (nextSession?.user) {
+          setUser(nextSession.user);
+          logStep('init:session', { hasUser: true });
+          // Do not block global loading on profile fetch
+          void fetchProfile(nextSession.user.id, 'init');
+        } else {
+          setUser(null);
+          setProfile(null);
+          logStep('init:session', { hasUser: false });
         }
       } catch (err) {
-        console.error('Error initializing auth:', err);
+        logStep('init:error', { name: err?.name, message: err?.message });
       } finally {
         setLoading(false);
+        logStep('init:end', { loading: false });
       }
     };
 
     initAuth();
+  }, [fetchProfile]);
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+  // Listen for auth changes
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      logStep('authStateChange', { event, hasSession: !!session, hasUser: !!session?.user });
       setSession(session || null);
       if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
-        await fetchProfile(session.user.id);
+        void fetchProfile(session.user.id, 'authStateChange');
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);

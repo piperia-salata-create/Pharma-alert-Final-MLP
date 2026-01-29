@@ -134,6 +134,42 @@ const translations = {
     requestStock: 'Αίτημα Αποθέματος',
     sendRequest: 'Αποστολή Αιτήματος',
     requestSent: 'Το αίτημα στάλθηκε',
+
+    // Patient Requests
+    requestMedicineTitle: '\u0391\u03af\u03c4\u03b7\u03bc\u03b1 \u03a6\u03b1\u03c1\u03bc\u03ac\u03ba\u03bf\u03c5',
+    requestMedicineDesc: '\u0398\u03b1 \u03b5\u03b9\u03b4\u03bf\u03c0\u03bf\u03b9\u03ae\u03c3\u03bf\u03c5\u03bc\u03b5 \u03c4\u03b1 \u03b5\u03c6\u03b7\u03bc\u03b5\u03c1\u03b5\u03cd\u03bf\u03bd\u03c4\u03b1 \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03b1.',
+    myRequestsTitle: '\u03a4\u03b1 \u0391\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03ac \u03bc\u03bf\u03c5',
+    myRequestsEmpty: '\u0394\u03b5\u03bd \u03c5\u03c0\u03ac\u03c1\u03c7\u03bf\u03c5\u03bd \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1',
+    myRequestsEmptyDesc: '\u0394\u03b7\u03bc\u03b9\u03bf\u03c5\u03c1\u03b3\u03ae\u03c3\u03c4\u03b5 \u03ad\u03bd\u03b1 \u03b1\u03af\u03c4\u03b7\u03bc\u03b1 \u03b3\u03b9\u03b1 \u03bd\u03b1 \u03b5\u03b9\u03b4\u03bf\u03c0\u03bf\u03b9\u03b7\u03b8\u03bf\u03cd\u03bd \u03c4\u03b1 \u03b5\u03c6\u03b7\u03bc\u03b5\u03c1\u03b5\u03cd\u03bf\u03bd\u03c4\u03b1 \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03b1.',
+    requestMedicineLabel: '\u038c\u03bd\u03bf\u03bc\u03b1 \u03a6\u03b1\u03c1\u03bc\u03ac\u03ba\u03bf\u03c5',
+    requestMedicinePlaceholder: '\u03c0.\u03c7. Amoxicillin 500mg',
+    requestNotesLabel: '\u03a3\u03b7\u03bc\u03b5\u03b9\u03ce\u03c3\u03b5\u03b9\u03c2 (\u03c0\u03c1\u03bf\u03b1\u03b9\u03c1\u03b5\u03c4\u03b9\u03ba\u03cc)',
+    requestNotesPlaceholder: '\u039b\u03b5\u03c0\u03c4\u03bf\u03bc\u03ad\u03c1\u03b5\u03b9\u03b5\u03c2 \u03cc\u03c0\u03c9\u03c2 \u03b4\u03bf\u03c3\u03bf\u03bb\u03bf\u03b3\u03af\u03b1, \u03bc\u03bf\u03c1\u03c6\u03ae \u03ae \u03b5\u03c0\u03b5\u03af\u03b3\u03bf\u03bd',
+    requestCreatedAt: '\u0394\u03b7\u03bc\u03b9\u03bf\u03c5\u03c1\u03b3\u03ae\u03b8\u03b7\u03ba\u03b5',
+    requestRoutedTo: '\u03a0\u03c1\u03bf\u03c9\u03b8\u03ae\u03b8\u03b7\u03ba\u03b5 \u03c3\u03b5',
+    requestRoutedToCount: 'Προστέθηκε σε {count} φαρμακεία',
+    requestLastResponse: 'Τελευταία απάντηση:',
+    requestStatusPending: '\u03a3\u03b5 \u03b1\u03bd\u03b1\u03bc\u03bf\u03bd\u03ae',
+    requestStatusAccepted: '\u0388\u03b3\u03b9\u03bd\u03b5 \u03b1\u03c0\u03bf\u03b4\u03b5\u03ba\u03c4\u03cc',
+    requestStatusRejected: '\u0391\u03c0\u03bf\u03c1\u03c1\u03af\u03c6\u03b8\u03b7\u03ba\u03b5',
+    requestStatusClosed: '\u039a\u03bb\u03b5\u03b9\u03c3\u03c4\u03cc',
+
+    requestNoPharmacies: '\u0394\u03b5\u03bd \u03c5\u03c0\u03ac\u03c1\u03c7\u03bf\u03c5\u03bd \u03b5\u03b3\u03b3\u03b5\u03b3\u03c1\u03b1\u03bc\u03bc\u03ad\u03bd\u03b1 \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03b1 \u03b3\u03b9\u03b1 \u03bb\u03ae\u03c8\u03b7 \u03b1\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd \u03b1\u03c5\u03c4\u03ae \u03c4\u03b7 \u03c3\u03c4\u03b9\u03b3\u03bc\u03ae.',
+    requestExpiresLabel: '\u039b\u03ae\u03b3\u03b5\u03b9:',
+    requestExpiresInHours: 'Λήγει σε {hours} ώρες',
+    requestExpiresInMinutes: 'Λήγει σε {minutes} λεπτά',
+    requestExpired: 'Έληξε',
+    requestNoResponses: '\u039a\u03b1\u03bc\u03af\u03b1 \u03b1\u03c0\u03ac\u03bd\u03c4\u03b7\u03c3\u03b7 \u03b1\u03ba\u03cc\u03bc\u03b7',
+    requestResponsesLabel: '\u0391\u03c0\u03b1\u03bd\u03c4\u03ae\u03c3\u03b5\u03b9\u03c2:',
+    requestResponsesAccepted: '\u03b1\u03c0\u03bf\u03b4\u03b5\u03ba\u03c4\u03ad\u03c2',
+    requestResponsesRejected: '\u03b1\u03c0\u03bf\u03c1\u03c1\u03af\u03c8\u03b5\u03b9\u03c2',
+    requestResponsesPending: '\u03c3\u03b5 \u03b1\u03bd\u03b1\u03bc\u03bf\u03bd\u03ae',
+    requestCancel: '\u0391\u03ba\u03cd\u03c1\u03c9\u03c3\u03b7 \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03bf\u03c2',
+    requestCancelling: '\u0391\u03ba\u03cd\u03c1\u03c9\u03c3\u03b7...',
+    requestSignInRequired: '\u03a3\u03c5\u03bd\u03b4\u03b5\u03b8\u03b5\u03af\u03c4\u03b5 \u03b3\u03b9\u03b1 \u03bd\u03b1 \u03c3\u03c4\u03b5\u03af\u03bb\u03b5\u03c4\u03b5 \u03b1\u03af\u03c4\u03b7\u03bc\u03b1',
+    requestMedicineRequired: '\u03a3\u03c5\u03bc\u03c0\u03bb\u03b7\u03c1\u03ce\u03c3\u03c4\u03b5 \u03c4\u03bf \u03cc\u03bd\u03bf\u03bc\u03b1 \u03c6\u03b1\u03c1\u03bc\u03ac\u03ba\u03bf\u03c5',
+    pharmacy: '\u03a6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03bf',
+
     
     // Install PWA
     installApp: 'Εγκατάσταση Εφαρμογής',
@@ -271,6 +307,42 @@ const translations = {
     requestStock: 'Stock Request',
     sendRequest: 'Send Request',
     requestSent: 'Request Sent',
+
+    // Patient Requests
+    requestMedicineTitle: 'Request a Medicine',
+    requestMedicineDesc: 'We will notify on-duty pharmacies.',
+    myRequestsTitle: 'My Requests',
+    myRequestsEmpty: 'No requests yet',
+    myRequestsEmptyDesc: 'Create a request to notify on-duty pharmacies.',
+    requestMedicineLabel: 'Medicine Name',
+    requestMedicinePlaceholder: 'e.g. Amoxicillin 500mg',
+    requestNotesLabel: 'Notes (optional)',
+    requestNotesPlaceholder: 'Details like dosage, form, or urgency',
+    requestCreatedAt: 'Created',
+    requestRoutedTo: 'Routed to',
+    requestRoutedToCount: 'Added to {count} pharmacies',
+    requestLastResponse: 'Last response:',
+    requestStatusPending: 'Pending',
+    requestStatusAccepted: 'Accepted',
+    requestStatusRejected: 'Rejected',
+    requestStatusClosed: 'Closed',
+
+    requestNoPharmacies: 'No registered pharmacies are available to receive requests right now.',
+    requestExpiresLabel: 'Expires:',
+    requestExpiresInHours: 'Expires in {hours}h',
+    requestExpiresInMinutes: 'Expires in {minutes}m',
+    requestExpired: 'Expired',
+    requestNoResponses: 'No responses yet',
+    requestResponsesLabel: 'Responses:',
+    requestResponsesAccepted: 'accepted',
+    requestResponsesRejected: 'rejected',
+    requestResponsesPending: 'pending',
+    requestCancel: 'Cancel request',
+    requestCancelling: 'Cancelling...',
+    requestSignInRequired: 'Sign in to send a request',
+    requestMedicineRequired: 'Enter a medicine name',
+    pharmacy: 'Pharmacy',
+
     
     // Install PWA
     installApp: 'Install App',
@@ -318,11 +390,14 @@ export const LanguageProvider = ({ children }) => {
       try {
         const user = await getCurrentUser();
         if (user) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('profiles')
             .select('language')
             .eq('id', user.id)
-            .single();
+            .maybeSingle();
+
+          if (error) throw error;
+          if (!data) return;
           
           if (data?.language) {
             setLanguageState(data.language);

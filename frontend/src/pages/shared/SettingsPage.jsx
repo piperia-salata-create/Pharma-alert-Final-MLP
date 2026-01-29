@@ -71,7 +71,7 @@ export default function SettingsPage() {
               </div>
 
               <Link 
-                to={`${basePath}/profile`}
+                to={`${basePath}/settings/profile`}
                 className="flex items-center justify-between p-4 hover:bg-pharma-ice-blue/50 transition-colors"
                 data-testid="edit-profile-link"
               >

@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Switch } from '../../components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { EmptyState } from '../../components/ui/empty-states';
 import { toast } from 'sonner';
 import { 
   Bell, 
@@ -24,6 +25,8 @@ import {
   UserPlus,
   Clock,
   CheckCircle2,
+  Inbox,
+  XCircle,
   Send,
   ArrowRight,
   Package,
@@ -41,6 +44,7 @@ export default function PharmacistDashboard() {
   const [isOnDuty, setIsOnDuty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
   
   // Connections state
   const [connections, setConnections] = useState({ incoming: 0, outgoing: 0, accepted: 0, recentAccepted: [] });
@@ -50,6 +54,8 @@ export default function PharmacistDashboard() {
   
   // Stock requests state
   const [stockRequests, setStockRequests] = useState({ pending: 0, recent: [] });
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [incomingLoading, setIncomingLoading] = useState(false);
 
   // Redirect if not pharmacist
   useEffect(() => {
@@ -57,6 +63,13 @@ export default function PharmacistDashboard() {
       navigate('/patient');
     }
   }, [profile, isPharmacist, navigate]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNowTick(Date.now());
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch pharmacist's pharmacy
   // TODO: Handle multiple pharmacies - currently using first one
@@ -68,14 +81,18 @@ export default function PharmacistDashboard() {
         .select('*')
         .eq('owner_id', user.id)
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error;
-      
-      if (data) {
-        setPharmacy(data);
-        setIsOnDuty(data.is_on_call || false);
+      if (error) throw error;
+
+      if (!data) {
+        setPharmacy(null);
+        setIsOnDuty(false);
+        return null;
       }
+
+      setPharmacy(data);
+      setIsOnDuty(data.is_on_call || false);
       return data;
     } catch (error) {
       console.error('Error fetching pharmacy:', error);
@@ -125,7 +142,7 @@ export default function PharmacistDashboard() {
       const { data, error } = await supabase
         .from('stock_requests')
         .select('*')
-        .eq('target_pharmacy_id', pharmacy.id)
+        .eq('to_pharmacy_id', pharmacy.id)
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
         .limit(5);
@@ -138,6 +155,55 @@ export default function PharmacistDashboard() {
       });
     } catch (error) {
       console.error('Error fetching stock requests:', error);
+    }
+  }, [pharmacy]);
+
+  // Fetch incoming patient requests
+  const fetchIncomingRequests = useCallback(async () => {
+    if (!pharmacy) return;
+    setIncomingLoading(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('patient_request_recipients')
+        .select(`
+          id,
+          status,
+          responded_at,
+          request_id,
+          request:patient_requests!patient_request_recipients_request_id_fkey (
+            id,
+            medicine_query,
+            dosage,
+            form,
+            urgency,
+            status,
+            created_at,
+            expires_at,
+            patient_id,
+            notes
+          )
+        `)
+        .eq('pharmacy_id', pharmacy.id)
+        .eq('status', 'pending')
+        .gt('patient_requests.expires_at', nowIso)
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+      if (process.env.NODE_ENV === 'development' && data && data.length > 0) {
+        console.log('[PharmacistDashboard] sample recipient row', data[0]);
+      }
+      const now = Date.now();
+      const filtered = (data || []).filter((recipient) => {
+        const expiresAt = recipient.request?.expires_at;
+        if (!expiresAt) return true;
+        return new Date(expiresAt).getTime() >= now;
+      });
+      setIncomingRequests(filtered);
+    } catch (error) {
+      console.error('Error fetching incoming requests:', error);
+    } finally {
+      setIncomingLoading(false);
     }
   }, [pharmacy]);
 
@@ -187,7 +253,10 @@ export default function PharmacistDashboard() {
         .select('id, full_name, email, role, pharmacy_name')
         .eq('email', inviteEmail.trim().toLowerCase())
         .eq('role', 'pharmacist')
-        .single();
+        .maybeSingle();
+      if (findError) {
+        console.error('Error finding pharmacist by email:', findError);
+      }
 
       if (findError || !targetProfile) {
         toast.error(language === 'el' ? 'Δεν βρέθηκε φαρμακοποιός' : 'Pharmacist not found');
@@ -237,6 +306,41 @@ export default function PharmacistDashboard() {
     }
   };
 
+  const respondToPatientRequest = async (recipientId, status) => {
+    try {
+      if (!pharmacy?.id) {
+        toast.error(language === 'el'
+          ? '\u0394\u03b5\u03bd \u03b2\u03c1\u03ad\u03b8\u03b7\u03ba\u03b5 \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03bf.'
+          : 'Pharmacy not found.');
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from('patient_request_recipients')
+        .update({
+          status,
+          responded_at: nowIso,
+          updated_at: nowIso
+        })
+        .eq('id', recipientId)
+        .eq('pharmacy_id', pharmacy.id);
+
+      if (error) throw error;
+
+      toast.success(
+        status === 'accepted'
+          ? (language === 'el' ? 'Αίτημα αποδεκτό' : 'Request accepted')
+          : (language === 'el' ? 'Αίτημα απορρίφθηκε' : 'Request rejected')
+      );
+
+      fetchIncomingRequests();
+    } catch (error) {
+      console.error('Error responding to patient request:', error);
+      toast.error(language === 'el' ? 'Σφάλμα ενημέρωσης' : 'Update failed');
+    }
+  };
+
   // Handle sign out
   const handleSignOut = async () => {
     await signOut();
@@ -261,8 +365,9 @@ export default function PharmacistDashboard() {
   useEffect(() => {
     if (pharmacy) {
       fetchStockRequests();
+      fetchIncomingRequests();
     }
-  }, [pharmacy, fetchStockRequests]);
+  }, [pharmacy, fetchStockRequests, fetchIncomingRequests]);
 
   // Realtime subscriptions
   useEffect(() => {
@@ -278,9 +383,109 @@ export default function PharmacistDashboard() {
     };
   }, [user, fetchConnections]);
 
+  useEffect(() => {
+    if (!pharmacy) return;
+
+    const requestsChannel = supabase
+      .channel(`patient_request_recipients:${pharmacy.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'patient_request_recipients', filter: `pharmacy_id=eq.${pharmacy.id}` },
+        () => fetchIncomingRequests()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(requestsChannel);
+    };
+  }, [pharmacy, fetchIncomingRequests]);
+
   if (!isPharmacist()) {
     return null;
   }
+
+  const getMapsUrl = (pharmacyData) => {
+    if (!pharmacyData) return null;
+    const hasCoords = pharmacyData.latitude !== null && pharmacyData.latitude !== undefined
+      && pharmacyData.longitude !== null && pharmacyData.longitude !== undefined;
+    const query = hasCoords
+      ? `${pharmacyData.latitude},${pharmacyData.longitude}`
+      : pharmacyData.address;
+    if (!query) return null;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  };
+
+  const getRemainingLabel = (expiresAt) => {
+    if (!expiresAt) return '';
+    const diffMs = new Date(expiresAt).getTime() - nowTick;
+    if (diffMs <= 0) return language === 'el' ? 'Έληξε' : 'Expired';
+    const totalMinutes = Math.ceil(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) {
+      return language === 'el'
+        ? `Λήγει σε ${hours}ω ${minutes}λ`
+        : `Expires in ${hours}h ${minutes}m`;
+    }
+    return language === 'el'
+      ? `Λήγει σε ${minutes}λ`
+      : `Expires in ${minutes}m`;
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return '-';
+    return new Date(value).toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
+  };
+
+  const formatHours = (hoursValue) => {
+    if (!hoursValue || typeof hoursValue !== 'string') return null;
+    const labels = language === 'el'
+      ? { mon: 'Δευ', tue: 'Τρι', wed: 'Τετ', thu: 'Πεμ', fri: 'Παρ', sat: 'Σαβ', sun: 'Κυρ' }
+      : { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+    const closedLabel = language === 'el' ? 'Κλειστό' : 'Closed';
+    const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+    let parsed;
+    try {
+      parsed = JSON.parse(hoursValue);
+    } catch (err) {
+      return hoursValue;
+    }
+    if (!parsed || typeof parsed !== 'object') return hoursValue;
+
+    const dayEntries = dayOrder.map((dayKey) => {
+      const entry = parsed[dayKey] || {};
+      const openValue = typeof entry.open === 'string' ? entry.open : '';
+      const closeValue = typeof entry.close === 'string' ? entry.close : '';
+      const hasTimes = openValue && closeValue;
+      const isClosed = entry.closed === true || !hasTimes;
+      return {
+        label: labels[dayKey],
+        value: isClosed ? closedLabel : `${openValue}–${closeValue}`
+      };
+    });
+
+    const groups = [];
+    dayEntries.forEach((entry, index) => {
+      if (groups.length === 0) {
+        groups.push({ start: index, end: index, value: entry.value });
+        return;
+      }
+      const last = groups[groups.length - 1];
+      if (last.value === entry.value) {
+        last.end = index;
+      } else {
+        groups.push({ start: index, end: index, value: entry.value });
+      }
+    });
+
+    return groups.map((group) => {
+      const startLabel = dayEntries[group.start].label;
+      const endLabel = dayEntries[group.end].label;
+      const range = group.start === group.end ? startLabel : `${startLabel}–${endLabel}`;
+      return `${range} ${group.value}`;
+    }).join(', ');
+  };
 
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="pharmacist-dashboard">
@@ -401,7 +606,8 @@ export default function PharmacistDashboard() {
             ))}
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 gap-6">
+          <>
+            <div className="grid md:grid-cols-2 gap-6">
             {/* STATUS CARD - On Duty Toggle */}
             <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" data-testid="status-card">
               <CardHeader className="pb-2">
@@ -470,18 +676,38 @@ export default function PharmacistDashboard() {
                         {pharmacy.phone}
                       </p>
                     )}
-                    <Link to="/pharmacist/settings">
-                      <Button variant="outline" size="sm" className="rounded-full mt-2" data-testid="edit-pharmacy-btn">
-                        {language === 'el' ? 'Επεξεργασία' : 'Edit Profile'}
-                      </Button>
-                    </Link>
+                    {formatHours(pharmacy.hours) && (
+                      <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
+                        <Clock className="w-4 h-4 flex-shrink-0" />
+                        {formatHours(pharmacy.hours)}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <Link to="/pharmacist/settings">
+                        <Button variant="outline" size="sm" className="rounded-full" data-testid="edit-pharmacy-btn">
+                          {language === 'el' ? 'Επεξεργασία' : 'Edit Profile'}
+                        </Button>
+                      </Link>
+                      {getMapsUrl(pharmacy) && (
+                        <a
+                          href={getMapsUrl(pharmacy)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-block"
+                        >
+                          <Button variant="outline" size="sm" className="rounded-full" data-testid="open-maps-btn">
+                            {language === 'el' ? 'Άνοιγμα Χάρτη' : 'Open in Maps'}
+                          </Button>
+                        </a>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-4">
                     <p className="text-pharma-slate-grey mb-3">
                       {language === 'el' ? 'Δεν έχετε φαρμακείο' : 'No pharmacy registered'}
                     </p>
-                    <Link to="/pharmacist/settings">
+                    <Link to="/pharmacist/pharmacy/new">
                       <Button className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90" data-testid="add-pharmacy-btn">
                         {language === 'el' ? 'Προσθήκη Φαρμακείου' : 'Add Pharmacy'}
                       </Button>
@@ -613,7 +839,107 @@ export default function PharmacistDashboard() {
                 </Link>
               </CardContent>
             </Card>
-          </div>
+            </div>
+
+            {/* INCOMING PATIENT REQUESTS */}
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.2s' }} data-testid="incoming-patient-requests-card">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
+                  <Inbox className="w-5 h-5 text-pharma-teal" />
+                  {language === 'el' ? 'Εισερχόμενα Αιτήματα Ασθενών' : 'Incoming Patient Requests'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                {!pharmacy ? (
+                  <p className="text-sm text-pharma-slate-grey">
+                    {language === 'el' ? 'Προσθέστε φαρμακείο για να λαμβάνετε αιτήματα.' : 'Add a pharmacy to receive requests.'}
+                  </p>
+                ) : incomingLoading ? (
+                  <p className="text-sm text-pharma-slate-grey">
+                    {language === 'el' ? 'Φόρτωση...' : 'Loading...'}
+                  </p>
+                ) : incomingRequests.length === 0 ? (
+                  <EmptyState
+                    icon={Inbox}
+                    title={language === 'el' ? 'Δεν υπάρχουν αιτήματα' : 'No incoming requests'}
+                    description={language === 'el' ? 'Θα εμφανίζονται εδώ όταν υπάρχουν.' : 'They will appear here when available.'}
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {incomingRequests.map((req) => (
+                      <div key={req.id} className="p-4 rounded-xl border border-pharma-grey-pale bg-pharma-ice-blue/40">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-pharma-dark-slate truncate">
+                              {req.request?.medicine_query || 'Request'}
+                            </p>
+                            {req.request?.notes && (
+                              <p className="text-sm text-pharma-slate-grey mt-1">
+                                {req.request?.notes}
+                              </p>
+                            )}
+                            {req.request?.created_at && (
+                              <p className="text-xs text-pharma-silver mt-2">
+                                {new Date(req.request?.created_at).toLocaleString(language === 'el' ? 'el-GR' : 'en-US')}
+                              </p>
+                            )}
+                            {req.request?.expires_at && (
+                              <p className="text-xs text-pharma-slate-grey mt-1">
+                                {language === 'el' ? 'Λήγει:' : 'Expires'} {formatDateTime(req.request?.expires_at)} · {getRemainingLabel(req.request?.expires_at)}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              className="rounded-full bg-pharma-sea-green hover:bg-pharma-sea-green/90 gap-1"
+                              onClick={() => respondToPatientRequest(req.id, 'accepted')}
+                              data-testid={`accept-patient-request-${req.id}`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              {language === 'el' ? 'Αποδοχή' : 'Accept'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-full gap-1"
+                              onClick={() => respondToPatientRequest(req.id, 'rejected')}
+                              data-testid={`reject-patient-request-${req.id}`}
+                            >
+                              <XCircle className="w-4 h-4" />
+                              {language === 'el' ? 'Απόρριψη' : 'Reject'}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {pharmacy ? (
+                  <Link to="/pharmacist/patient-requests">
+                    <Button
+                      variant="outline"
+                      className="w-full rounded-full gap-2 mt-4"
+                      data-testid="manage-patient-requests-btn"
+                    >
+                      {language === 'el' ? '\u0394\u03b9\u03b1\u03c7\u03b5\u03af\u03c1\u03b9\u03c3\u03b7 \u0391\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd' : 'Manage Requests'}
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-full gap-2 mt-4"
+                    disabled
+                    data-testid="manage-patient-requests-btn"
+                  >
+                    {language === 'el' ? '\u0394\u03b9\u03b1\u03c7\u03b5\u03af\u03c1\u03b9\u03c3\u03b7 \u0391\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd' : 'Manage Requests'}
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </>
         )}
       </main>
 

@@ -44,7 +44,14 @@ export default function PharmacyDetailPage() {
           .from('pharmacies')
           .select('*')
           .eq('id', id)
-          .single();
+          .maybeSingle();
+
+        if (pharmacyError) throw pharmacyError;
+        if (!pharmacyData) {
+          setPharmacy(null);
+          setStock([]);
+          return;
+        }
 
         if (pharmacyError) throw pharmacyError;
         setPharmacy(pharmacyData);
@@ -64,12 +71,14 @@ export default function PharmacyDetailPage() {
 
         // Check if favorite
         if (user) {
-          const { data: favoriteData } = await supabase
+          const { data: favoriteData, error: favoriteError } = await supabase
             .from('favorites')
             .select('id')
             .eq('user_id', user.id)
             .eq('pharmacy_id', id)
-            .single();
+            .maybeSingle();
+
+          if (favoriteError) throw favoriteError;
 
           setIsFavorite(!!favoriteData);
         }

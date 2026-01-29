@@ -33,8 +33,13 @@ export const NotificationProvider = ({ children }) => {
 
       if (error) throw error;
       
-      setNotifications(data || []);
-      setUnreadCount((data || []).filter(n => !n.read).length);
+      const normalized = (data || []).map(n => ({
+        ...n,
+        is_read: n.is_read ?? n.read
+      }));
+
+      setNotifications(normalized);
+      setUnreadCount(normalized.filter(n => !n.is_read).length);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -47,13 +52,13 @@ export const NotificationProvider = ({ children }) => {
     try {
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('id', notificationId);
 
       if (error) throw error;
 
       setNotifications(prev => 
-        prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
+        prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
@@ -68,13 +73,13 @@ export const NotificationProvider = ({ children }) => {
     try {
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('user_id', user.id)
-        .eq('read', false);
+        .eq('is_read', false);
 
       if (error) throw error;
 
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnreadCount(0);
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -93,7 +98,7 @@ export const NotificationProvider = ({ children }) => {
 
       setNotifications(prev => {
         const notification = prev.find(n => n.id === notificationId);
-        if (notification && !notification.read) {
+        if (notification && !notification.is_read) {
           setUnreadCount(c => Math.max(0, c - 1));
         }
         return prev.filter(n => n.id !== notificationId);
@@ -105,8 +110,13 @@ export const NotificationProvider = ({ children }) => {
 
   // Add local notification (for realtime updates)
   const addNotification = useCallback((notification) => {
-    setNotifications(prev => [notification, ...prev]);
-    if (!notification.read) {
+    const normalized = {
+      ...notification,
+      is_read: notification.is_read ?? notification.read
+    };
+
+    setNotifications(prev => [normalized, ...prev]);
+    if (!normalized.is_read) {
       setUnreadCount(prev => prev + 1);
     }
   }, []);

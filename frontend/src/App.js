@@ -1,6 +1,6 @@
 import React from 'react';
 import "@/App.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { Toaster } from "sonner";
 
 // Contexts
@@ -21,7 +21,10 @@ import RemindersPage from "./pages/patient/RemindersPage";
 import PharmacistDashboard from "./pages/pharmacist/PharmacistDashboard";
 import InterPharmacyPage from "./pages/pharmacist/InterPharmacyPage";
 import PharmacistConnectionsPage from "./pages/pharmacist/PharmacistConnectionsPage";
+import PharmacistPatientRequestsPage from "./pages/pharmacist/PharmacistPatientRequestsPage";
+import PharmacyCreatePage from "./pages/pharmacist/PharmacyCreatePage";
 import SettingsPage from "./pages/shared/SettingsPage";
+import SettingsProfilePage from "./pages/shared/SettingsProfilePage";
 import NotificationsPage from "./pages/shared/NotificationsPage";
 
 // Protected Route Component with loading timeout safeguard
@@ -155,9 +158,13 @@ function AppRoutes() {
       } />
       <Route path="/patient/settings" element={
         <ProtectedRoute requiredRole="patient">
-          <SettingsPage />
+          <Outlet />
         </ProtectedRoute>
-      } />
+      }>
+        <Route index element={<SettingsPage />} />
+        <Route path="profile" element={<SettingsProfilePage />} />
+        <Route path="*" element={<Navigate to="/patient/settings" replace />} />
+      </Route>
 
       {/* Pharmacist Routes */}
       <Route path="/pharmacist" element={
@@ -175,6 +182,16 @@ function AppRoutes() {
           <InterPharmacyPage />
         </ProtectedRoute>
       } />
+      <Route path="/pharmacist/patient-requests" element={
+        <ProtectedRoute requiredRole="pharmacist">
+          <PharmacistPatientRequestsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/pharmacist/pharmacy/new" element={
+        <ProtectedRoute requiredRole="pharmacist">
+          <PharmacyCreatePage />
+        </ProtectedRoute>
+      } />
       <Route path="/pharmacist/connections" element={
         <ProtectedRoute requiredRole="pharmacist">
           <PharmacistConnectionsPage />
@@ -187,9 +204,13 @@ function AppRoutes() {
       } />
       <Route path="/pharmacist/settings" element={
         <ProtectedRoute requiredRole="pharmacist">
-          <SettingsPage />
+          <Outlet />
         </ProtectedRoute>
-      } />
+      }>
+        <Route index element={<SettingsPage />} />
+        <Route path="profile" element={<SettingsProfilePage />} />
+        <Route path="*" element={<Navigate to="/pharmacist/settings" replace />} />
+      </Route>
 
       {/* Catch all - redirect to home */}
       <Route path="*" element={<Navigate to="/" replace />} />

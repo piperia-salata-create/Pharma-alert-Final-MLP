@@ -103,66 +103,69 @@ export default function NotificationsPage() {
           />
         ) : (
           <div className="space-y-3 page-enter">
-            {notifications.map((notification) => (
-              <Card 
-                key={notification.id}
-                className={`bg-white rounded-2xl shadow-card border-pharma-grey-pale transition-all ${
-                  !notification.read ? 'border-l-4 border-l-pharma-teal' : ''
-                }`}
-                data-testid={`notification-${notification.id}`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      !notification.read ? 'bg-pharma-teal/10' : 'bg-pharma-ice-blue'
-                    }`}>
-                      {getNotificationIcon(notification.type)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className={`text-sm ${!notification.read ? 'font-semibold' : 'font-medium'} text-pharma-dark-slate`}>
-                            {notification.title}
-                          </h3>
-                          <p className="text-sm text-pharma-slate-grey mt-1">
-                            {notification.message}
-                          </p>
-                          <p className="text-xs text-pharma-silver mt-2">
-                            {new Date(notification.created_at).toLocaleString(
-                              language === 'el' ? 'el-GR' : 'en-US'
+            {notifications.map((notification) => {
+              const isRead = notification.is_read ?? notification.read;
+              return (
+                <Card 
+                  key={notification.id}
+                  className={`bg-white rounded-2xl shadow-card border-pharma-grey-pale transition-all ${
+                    !isRead ? 'border-l-4 border-l-pharma-teal' : ''
+                  }`}
+                  data-testid={`notification-${notification.id}`}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                        !isRead ? 'bg-pharma-teal/10' : 'bg-pharma-ice-blue'
+                      }`}>
+                        {getNotificationIcon(notification.type)}
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className={`text-sm ${!isRead ? 'font-semibold' : 'font-medium'} text-pharma-dark-slate`}>
+                              {notification.title}
+                            </h3>
+                            <p className="text-sm text-pharma-slate-grey mt-1">
+                              {notification.body || notification.message}
+                            </p>
+                            <p className="text-xs text-pharma-silver mt-2">
+                              {new Date(notification.created_at).toLocaleString(
+                                language === 'el' ? 'el-GR' : 'en-US'
+                              )}
+                            </p>
+                          </div>
+                          
+                          <div className="flex gap-1">
+                            {!isRead && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-full h-8 w-8 p-0"
+                                onClick={() => markAsRead(notification.id)}
+                                data-testid={`mark-read-${notification.id}`}
+                              >
+                                <Check className="w-4 h-4 text-pharma-teal" />
+                              </Button>
                             )}
-                          </p>
-                        </div>
-                        
-                        <div className="flex gap-1">
-                          {!notification.read && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="rounded-full h-8 w-8 p-0"
-                              onClick={() => markAsRead(notification.id)}
-                              data-testid={`mark-read-${notification.id}`}
+                              className="rounded-full h-8 w-8 p-0 text-pharma-slate-grey hover:text-pharma-charcoal"
+                              onClick={() => deleteNotification(notification.id)}
+                              data-testid={`delete-notification-${notification.id}`}
                             >
-                              <Check className="w-4 h-4 text-pharma-teal" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="rounded-full h-8 w-8 p-0 text-pharma-slate-grey hover:text-pharma-charcoal"
-                            onClick={() => deleteNotification(notification.id)}
-                            data-testid={`delete-notification-${notification.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </main>
